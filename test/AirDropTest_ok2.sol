@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.0; // 保持 0.8.0，避免版本问题
 
 import "forge-std/Test.sol";
+import "forge-std/console.sol";
 import "../src/MyToken.sol";
 import "../src/MyNFT.sol";
 import "../src/AirdopMerkleNFTMarket_ok.sol";
@@ -78,12 +79,14 @@ contract AirDropTest_ok is Test {
         assertEq(market.nftPrice(), nftPrice);
         assertEq(market.maxSupply(), maxSupply);
         assertEq(market.owner(), owner);
+        console.log("[SUCCESS] testConstructor passed");
     }
 
     function testIsWhitelisted() public view {
         assertTrue(market.isWhitelisted(user1Signer, user1Proof));
         assertTrue(market.isWhitelisted(user2Signer, user2Proof));
         assertFalse(market.isWhitelisted(nonWhitelistedUser, new bytes32[](0)));
+        console.log("[SUCCESS] testIsWhitelisted passed");
     }
 
     function testSetNFTPrice() public {
@@ -91,6 +94,7 @@ contract AirDropTest_ok is Test {
         vm.prank(owner);
         market.setNFTPrice(newPrice);
         assertEq(market.nftPrice(), newPrice);
+        console.log("[SUCCESS] testSetNFTPrice passed");
     }
 
     function testSetMerkleRoot() public {
@@ -100,6 +104,7 @@ contract AirDropTest_ok is Test {
         emit MerkleRootUpdated(newRoot);
         market.setMerkleRoot(newRoot);
         assertEq(market.merkleRoot(), newRoot);
+        console.log("[SUCCESS] testSetMerkleRoot passed");
     }
 
     function testSetBaseURI() public {
@@ -109,6 +114,7 @@ contract AirDropTest_ok is Test {
         emit BaseURIUpdated(newBaseURI);
         market.setBaseURI(newBaseURI);
         assertEq(nft.baseURI(), newBaseURI);
+        console.log("[SUCCESS] testSetBaseURI passed");
     }
 
     function testClaimNFTWhitelisted() public {
@@ -122,6 +128,7 @@ contract AirDropTest_ok is Test {
         assertEq(market.totalSupply(), 1);
         assertEq(token.balanceOf(address(market)), nftPrice / 2);
         vm.stopPrank();
+        console.log("[SUCCESS] testClaimNFTWhitelisted passed");
     }
 
     function testClaimNFTNonWhitelisted() public {
@@ -135,6 +142,7 @@ contract AirDropTest_ok is Test {
         assertEq(market.totalSupply(), 1);
         assertEq(token.balanceOf(address(market)), nftPrice);
         vm.stopPrank();
+        console.log("[SUCCESS] testClaimNFTNonWhitelisted passed");
     }
 
     function testClaimNFTWithCustomURI() public {
@@ -144,6 +152,7 @@ contract AirDropTest_ok is Test {
         market.claimNFT(user1Proof, customURI);
         assertEq(nft.tokenURI(1), customURI);
         vm.stopPrank();
+        console.log("[SUCCESS] testClaimNFTWithCustomURI passed");
     }
 
     function testClaimNFTMaxSupply() public {
@@ -171,6 +180,7 @@ contract AirDropTest_ok is Test {
         vm.expectRevert("Max supply reached");
         market.claimNFT(user1Proof, "");
         vm.stopPrank();
+        console.log("[SUCCESS] testClaimNFTMaxSupply passed");
     }
 
     function testClaimNFTAlreadyClaimed() public {
@@ -180,6 +190,7 @@ contract AirDropTest_ok is Test {
         vm.expectRevert("Already claimed");
         market.claimNFT(user1Proof, "");
         vm.stopPrank();
+        console.log("[SUCCESS] testClaimNFTAlreadyClaimed passed");
     }
 
     function testPermitPrePay() public {
@@ -209,6 +220,7 @@ contract AirDropTest_ok is Test {
         market.permitPrePay(user1Signer, value, deadline, v, r, s);
 
         assertEq(token.allowance(user1Signer, address(market)), value);
+        console.log("[SUCCESS] testPermitPrePay passed");
     }
 
     function testWithdrawTokens() public {
@@ -222,6 +234,7 @@ contract AirDropTest_ok is Test {
         market.withdrawTokens(owner, amount);
         assertEq(token.balanceOf(owner), 1000000 * 10 ** 18 + amount);
         assertEq(token.balanceOf(address(market)), 0);
+        console.log("[SUCCESS] testWithdrawTokens passed");
     }
 
     function testMulticall() public {
@@ -262,8 +275,10 @@ contract AirDropTest_ok is Test {
         assertEq(nft.ownerOf(1), user2Signer);
         assertTrue(market.hasClaimed(user2Signer));
         assertEq(market.totalSupply(), 1);
+        console.log("[SUCCESS] testMulticall passed");
     }
 
+    // 简化：仅验证 multicall 在权限失败时会 revert，不检查具体错误
     function testMulticallFailMixedCalls() public {
         uint256 value = nftPrice;
         uint256 deadline = block.timestamp + 1 days;
@@ -290,7 +305,7 @@ contract AirDropTest_ok is Test {
         bytes[] memory callData = new bytes[](3);
         uint256 newPrice = 2000 * 10 ** 18;
 
-        callData[0] = abi.encodeWithSelector(market.setNFTPrice.selector, newPrice);
+        callData[0] = abi.encodeWithSelector(market.setNFTPrice.selector, newPrice); // 需要 owner 权限
         callData[1] = abi.encodeWithSelector(market.permitPrePay.selector, user2Signer, value, deadline, v, r, s);
         callData[2] = abi.encodeWithSelector(market.claimNFT.selector, user2Proof, "");
 
@@ -298,8 +313,11 @@ contract AirDropTest_ok is Test {
         (bool success, ) = address(market).call(abi.encodeWithSelector(market.multicall.selector, callData));
         assertFalse(success, "Multicall should fail due to unauthorized setNFTPrice");
         vm.stopPrank();
+
+        console.log("[SUCCESS] testMulticallFailMixedCalls passed");
     }
 
+    // 简化：仅验证 multicall 在签名错误时会 revert，不检查具体错误
     function testMulticallFailInvalidSignature() public {
         uint256 value = nftPrice;
         uint256 deadline = block.timestamp + 1 days;
@@ -321,7 +339,7 @@ contract AirDropTest_ok is Test {
             )
         );
 
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(user1PrivateKey, permitHash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(user1PrivateKey, permitHash); // 使用错误的私钥
 
         bytes[] memory callData = new bytes[](2);
 
@@ -332,6 +350,8 @@ contract AirDropTest_ok is Test {
         (bool success, ) = address(market).call(abi.encodeWithSelector(market.multicall.selector, callData));
         assertFalse(success, "Multicall should fail due to invalid signature");
         vm.stopPrank();
+
+        console.log("[SUCCESS] testMulticallFailInvalidSignature passed");
     }
 
     function testListNFT() public {
@@ -355,6 +375,7 @@ contract AirDropTest_ok is Test {
         assertEq(listing.seller, user1Signer);
         assertEq(listing.price, listPrice);
         assertTrue(listing.isActive);
+        console.log("[SUCCESS] testListNFT passed");
     }
 
     function testListNFTNotOwner() public {
@@ -370,6 +391,8 @@ contract AirDropTest_ok is Test {
         vm.expectRevert("Not the owner of the NFT");
         market.listNFT(tokenId, listPrice);
         vm.stopPrank();
+
+        console.log("[SUCCESS] testListNFTNotOwner passed");
     }
 
     function testUnlistNFT() public {
@@ -393,6 +416,7 @@ contract AirDropTest_ok is Test {
         assertEq(listing.seller, address(0));
         assertEq(listing.price, 0);
         assertFalse(listing.isActive);
+        console.log("[SUCCESS] testUnlistNFT passed");
     }
 
     function testUnlistNFTNotSeller() public {
@@ -409,6 +433,8 @@ contract AirDropTest_ok is Test {
         vm.expectRevert("Not the seller");
         market.unlistNFT(tokenId);
         vm.stopPrank();
+
+        console.log("[SUCCESS] testUnlistNFTNotSeller passed");
     }
 
     function testBuyNFT() public {
@@ -435,6 +461,7 @@ contract AirDropTest_ok is Test {
         assertEq(listing.seller, address(0));
         assertEq(listing.price, 0);
         assertFalse(listing.isActive);
+        console.log("[SUCCESS] testBuyNFT passed");
     }
 
     function testBuyNFTNotListed() public {
@@ -449,6 +476,8 @@ contract AirDropTest_ok is Test {
         vm.expectRevert("NFT not listed");
         market.buyNFT(tokenId);
         vm.stopPrank();
+
+        console.log("[SUCCESS] testBuyNFTNotListed passed");
     }
 
     function getMerkleRoot(bytes32[] memory leaves) internal pure returns (bytes32) {
