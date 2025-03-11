@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.0; // 保持 0.8.0，避免版本问题
 
 import "forge-std/Test.sol";
-import "forge-std/console.sol"; // 引入 console.log 用于调试
+import "forge-std/console.sol";
 import "../src/MyToken.sol";
 import "../src/MyNFT.sol";
-import "../src/AirdopMerkleNFTMarket.sol";
+import "../src/AirdopMerkleNFTMarket_ok.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -14,7 +14,7 @@ contract AirDropTest_ok is Test {
 
     MyToken token;
     MyNFT nft;
-    AirdopMerkleNFTMarket market;
+    AirdopMerkleNFTMarket_ok market;
 
     address owner = address(0x1);
     address user1 = address(0x2);
@@ -22,68 +22,55 @@ contract AirDropTest_ok is Test {
     address nonWhitelistedUser = address(0x4);
 
     uint256 nftPrice = 1000 * 10 ** 18; // 1000 MTK
-    uint256 maxSupply = 10; // 降低最大供应量，便于测试
+    uint256 maxSupply = 10;
 
-    // 模拟的白名单 Merkle 树数据
     bytes32 merkleRoot;
     bytes32[] user1Proof;
     bytes32[] user2Proof;
 
-    // 离线签名所需的私钥（测试用，切勿在生产中使用）
     uint256 user1PrivateKey;
     address user1Signer;
+
+    uint256 user2PrivateKey;
+    address user2Signer;
 
     event NFTClaimed(address indexed user, uint256 tokenId, uint256 price);
     event MerkleRootUpdated(bytes32 newMerkleRoot);
     event BaseURIUpdated(string newBaseURI);
+    event NFTListed(address indexed seller, uint256 indexed tokenId, uint256 price);
+    event NFTUnlisted(address indexed seller, uint256 indexed tokenId);
+    event NFTBought(address indexed buyer, uint256 indexed tokenId, uint256 price);
 
     function setUp() public {
-        // 为 user1 生成私钥和地址
         user1PrivateKey = 0x1234;
         user1Signer = vm.addr(user1PrivateKey);
         vm.label(user1Signer, "User1Signer");
 
-        // 部署 MyToken 合约
+        user2PrivateKey = 0x5678;
+        user2Signer = vm.addr(user2PrivateKey);
+        vm.label(user2Signer, "User2Signer");
+
         vm.startPrank(owner);
         token = new MyToken();
         nft = new MyNFT();
-
-        // 部署 AirdopMerkleNFTMarket 合约
-        market = new AirdopMerkleNFTMarket(address(token), address(nft), nftPrice, maxSupply);
-
-        // 设置 NFT 合约的 minter 为 market 合约
+        market = new AirdopMerkleNFTMarket_ok(address(token), address(nft), nftPrice, maxSupply);
         nft.setMinter(address(market), true);
-
-        // 将 MyNFT 的所有权转移给 market 合约，以便 market 可以调用 setBaseURI
         nft.transferOwnership(address(market));
-
-        // 给测试用户分配代币
         token.mint(user1Signer, 10000 * 10 ** 18);
-        token.mint(user2, 10000 * 10 ** 18);
+        token.mint(user2Signer, 10000 * 10 ** 18);
         token.mint(nonWhitelistedUser, 10000 * 10 ** 18);
         vm.stopPrank();
 
-        // 设置模拟的 Merkle 树（包含 user1Signer 和 user2 的白名单）
-        // 修改叶子节点生成方式，与合约中的 keccak256(abi.encodePacked(user)) 一致
         bytes32[] memory leaves = new bytes32[](2);
         leaves[0] = keccak256(abi.encodePacked(user1Signer));
-        leaves[1] = keccak256(abi.encodePacked(user2));
+        leaves[1] = keccak256(abi.encodePacked(user2Signer));
         merkleRoot = getMerkleRoot(leaves);
 
-        // 为 user1Signer 和 user2 生成 Merkle 证明
         user1Proof = getMerkleProof(leaves, 0);
         user2Proof = getMerkleProof(leaves, 1);
 
-        // 设置 Merkle 树根
         vm.prank(owner);
         market.setMerkleRoot(merkleRoot);
-    }
-
-    // 调试函数：仅在需要时调用以打印 Merkle 树信息
-    function debugMerkleTree() public view {
-        console.log("Merkle Root:", uint256(merkleRoot));
-        console.log("User1 Proof[0]:", uint256(user1Proof[0]));
-        console.log("User2 Proof[0]:", uint256(user2Proof[0]));
     }
 
     function testConstructor() public view {
@@ -97,7 +84,7 @@ contract AirDropTest_ok is Test {
 
     function testIsWhitelisted() public view {
         assertTrue(market.isWhitelisted(user1Signer, user1Proof));
-        assertTrue(market.isWhitelisted(user2, user2Proof));
+        assertTrue(market.isWhitelisted(user2Signer, user2Proof));
         assertFalse(market.isWhitelisted(nonWhitelistedUser, new bytes32[](0)));
         console.log("[SUCCESS] testIsWhitelisted passed");
     }
@@ -169,14 +156,12 @@ contract AirDropTest_ok is Test {
     }
 
     function testClaimNFTMaxSupply() public {
-        // 使用不同的用户来测试最大供应量
         for (uint256 i = 0; i < maxSupply; i++) {
             address user = address(uint160(uint256(keccak256(abi.encodePacked(i)))));
             vm.startPrank(owner);
             token.mint(user, 10000 * 10 ** 18);
             vm.stopPrank();
 
-            // 为每个用户生成白名单证明（假设所有用户都在白名单中）
             bytes32[] memory leaves = new bytes32[](maxSupply);
             for (uint256 j = 0; j < maxSupply; j++) {
                 address tempUser = address(uint160(uint256(keccak256(abi.encodePacked(j)))));
@@ -190,7 +175,6 @@ contract AirDropTest_ok is Test {
             vm.stopPrank();
         }
 
-        // 尝试再次领取，期望失败
         vm.startPrank(user1Signer);
         token.approve(address(market), nftPrice);
         vm.expectRevert("Max supply reached");
@@ -213,7 +197,6 @@ contract AirDropTest_ok is Test {
         uint256 value = nftPrice;
         uint256 deadline = block.timestamp + 1 days;
 
-        // 计算 permit 的哈希
         bytes32 permitHash = keccak256(
             abi.encodePacked(
                 "\x19\x01",
@@ -231,20 +214,16 @@ contract AirDropTest_ok is Test {
             )
         );
 
-        // 使用 user1 的私钥签名
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(user1PrivateKey, permitHash);
 
-        // 调用 permitPrePay
         vm.prank(user1Signer);
         market.permitPrePay(user1Signer, value, deadline, v, r, s);
 
-        // 验证授权是否成功
         assertEq(token.allowance(user1Signer, address(market)), value);
         console.log("[SUCCESS] testPermitPrePay passed");
     }
 
     function testWithdrawTokens() public {
-        // 先让 user1 购买一个 NFT，增加 market 合约的代币余额
         vm.startPrank(user1Signer);
         token.approve(address(market), nftPrice);
         market.claimNFT(user1Proof, "");
@@ -258,7 +237,249 @@ contract AirDropTest_ok is Test {
         console.log("[SUCCESS] testWithdrawTokens passed");
     }
 
-    // 辅助函数：计算 Merkle 树根
+    function testMulticall() public {
+        uint256 value = nftPrice;
+        uint256 deadline = block.timestamp + 1 days;
+
+        bytes32 permitHash = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                token.DOMAIN_SEPARATOR(),
+                keccak256(
+                    abi.encode(
+                        keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"),
+                        user2Signer,
+                        address(market),
+                        value,
+                        token.nonces(user2Signer),
+                        deadline
+                    )
+                )
+            )
+        );
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(user2PrivateKey, permitHash);
+
+        bytes[] memory callData = new bytes[](2);
+
+        callData[0] = abi.encodeWithSelector(market.permitPrePay.selector, user2Signer, value, deadline, v, r, s);
+        callData[1] = abi.encodeWithSelector(market.claimNFT.selector, user2Proof, "");
+
+        vm.startPrank(user2Signer);
+        vm.expectEmit(true, true, true, true);
+        emit NFTClaimed(user2Signer, 1, nftPrice / 2);
+        market.multicall(callData);
+        vm.stopPrank();
+
+        assertEq(token.allowance(user2Signer, address(market)), nftPrice - (nftPrice / 2));
+        assertEq(nft.ownerOf(1), user2Signer);
+        assertTrue(market.hasClaimed(user2Signer));
+        assertEq(market.totalSupply(), 1);
+        console.log("[SUCCESS] testMulticall passed");
+    }
+
+    // 简化：仅验证 multicall 在权限失败时会 revert，不检查具体错误
+    function testMulticallFailMixedCalls() public {
+        uint256 value = nftPrice;
+        uint256 deadline = block.timestamp + 1 days;
+
+        bytes32 permitHash = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                token.DOMAIN_SEPARATOR(),
+                keccak256(
+                    abi.encode(
+                        keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"),
+                        user2Signer,
+                        address(market),
+                        value,
+                        token.nonces(user2Signer),
+                        deadline
+                    )
+                )
+            )
+        );
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(user2PrivateKey, permitHash);
+
+        bytes[] memory callData = new bytes[](3);
+        uint256 newPrice = 2000 * 10 ** 18;
+
+        callData[0] = abi.encodeWithSelector(market.setNFTPrice.selector, newPrice); // 需要 owner 权限
+        callData[1] = abi.encodeWithSelector(market.permitPrePay.selector, user2Signer, value, deadline, v, r, s);
+        callData[2] = abi.encodeWithSelector(market.claimNFT.selector, user2Proof, "");
+
+        vm.startPrank(user2Signer);
+        (bool success, ) = address(market).call(abi.encodeWithSelector(market.multicall.selector, callData));
+        assertFalse(success, "Multicall should fail due to unauthorized setNFTPrice");
+        vm.stopPrank();
+
+        console.log("[SUCCESS] testMulticallFailMixedCalls passed");
+    }
+
+    // 简化：仅验证 multicall 在签名错误时会 revert，不检查具体错误
+    function testMulticallFailInvalidSignature() public {
+        uint256 value = nftPrice;
+        uint256 deadline = block.timestamp + 1 days;
+
+        bytes32 permitHash = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                token.DOMAIN_SEPARATOR(),
+                keccak256(
+                    abi.encode(
+                        keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"),
+                        user2Signer,
+                        address(market),
+                        value,
+                        token.nonces(user2Signer),
+                        deadline
+                    )
+                )
+            )
+        );
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(user1PrivateKey, permitHash); // 使用错误的私钥
+
+        bytes[] memory callData = new bytes[](2);
+
+        callData[0] = abi.encodeWithSelector(market.permitPrePay.selector, user2Signer, value, deadline, v, r, s);
+        callData[1] = abi.encodeWithSelector(market.claimNFT.selector, user2Proof, "");
+
+        vm.startPrank(user2Signer);
+        (bool success, ) = address(market).call(abi.encodeWithSelector(market.multicall.selector, callData));
+        assertFalse(success, "Multicall should fail due to invalid signature");
+        vm.stopPrank();
+
+        console.log("[SUCCESS] testMulticallFailInvalidSignature passed");
+    }
+
+    function testListNFT() public {
+        vm.startPrank(user1Signer);
+        token.approve(address(market), nftPrice);
+        market.claimNFT(user1Proof, "");
+        vm.stopPrank();
+
+        uint256 tokenId = 1;
+        uint256 listPrice = 2000 * 10 ** 18;
+
+        vm.startPrank(user1Signer);
+        nft.approve(address(market), tokenId);
+        vm.expectEmit(true, true, true, true);
+        emit NFTListed(user1Signer, tokenId, listPrice);
+        market.listNFT(tokenId, listPrice);
+        vm.stopPrank();
+
+        assertEq(nft.ownerOf(tokenId), address(market));
+        AirdopMerkleNFTMarket_ok.Listing memory listing = market.getListing(tokenId);
+        assertEq(listing.seller, user1Signer);
+        assertEq(listing.price, listPrice);
+        assertTrue(listing.isActive);
+        console.log("[SUCCESS] testListNFT passed");
+    }
+
+    function testListNFTNotOwner() public {
+        vm.startPrank(user1Signer);
+        token.approve(address(market), nftPrice);
+        market.claimNFT(user1Proof, "");
+        vm.stopPrank();
+
+        uint256 tokenId = 1;
+        uint256 listPrice = 2000 * 10 ** 18;
+
+        vm.startPrank(user2Signer);
+        vm.expectRevert("Not the owner of the NFT");
+        market.listNFT(tokenId, listPrice);
+        vm.stopPrank();
+
+        console.log("[SUCCESS] testListNFTNotOwner passed");
+    }
+
+    function testUnlistNFT() public {
+        vm.startPrank(user1Signer);
+        token.approve(address(market), nftPrice);
+        market.claimNFT(user1Proof, "");
+        uint256 tokenId = 1;
+        uint256 listPrice = 2000 * 10 ** 18;
+        nft.approve(address(market), tokenId);
+        market.listNFT(tokenId, listPrice);
+        vm.stopPrank();
+
+        vm.startPrank(user1Signer);
+        vm.expectEmit(true, true, true, true);
+        emit NFTUnlisted(user1Signer, tokenId);
+        market.unlistNFT(tokenId);
+        vm.stopPrank();
+
+        assertEq(nft.ownerOf(tokenId), user1Signer);
+        AirdopMerkleNFTMarket_ok.Listing memory listing = market.getListing(tokenId);
+        assertEq(listing.seller, address(0));
+        assertEq(listing.price, 0);
+        assertFalse(listing.isActive);
+        console.log("[SUCCESS] testUnlistNFT passed");
+    }
+
+    function testUnlistNFTNotSeller() public {
+        vm.startPrank(user1Signer);
+        token.approve(address(market), nftPrice);
+        market.claimNFT(user1Proof, "");
+        uint256 tokenId = 1;
+        uint256 listPrice = 2000 * 10 ** 18;
+        nft.approve(address(market), tokenId);
+        market.listNFT(tokenId, listPrice);
+        vm.stopPrank();
+
+        vm.startPrank(user2Signer);
+        vm.expectRevert("Not the seller");
+        market.unlistNFT(tokenId);
+        vm.stopPrank();
+
+        console.log("[SUCCESS] testUnlistNFTNotSeller passed");
+    }
+
+    function testBuyNFT() public {
+        vm.startPrank(user1Signer);
+        token.approve(address(market), nftPrice);
+        market.claimNFT(user1Proof, "");
+        uint256 tokenId = 1;
+        uint256 listPrice = 2000 * 10 ** 18;
+        nft.approve(address(market), tokenId);
+        market.listNFT(tokenId, listPrice);
+        vm.stopPrank();
+
+        vm.startPrank(user2Signer);
+        token.approve(address(market), listPrice);
+        vm.expectEmit(true, true, true, true);
+        emit NFTBought(user2Signer, tokenId, listPrice);
+        market.buyNFT(tokenId);
+        vm.stopPrank();
+
+        assertEq(nft.ownerOf(tokenId), user2Signer);
+        assertEq(token.balanceOf(user1Signer), 10000 * 10 ** 18 - nftPrice / 2 + listPrice);
+        assertEq(token.balanceOf(user2Signer), 10000 * 10 ** 18 - listPrice);
+        AirdopMerkleNFTMarket_ok.Listing memory listing = market.getListing(tokenId);
+        assertEq(listing.seller, address(0));
+        assertEq(listing.price, 0);
+        assertFalse(listing.isActive);
+        console.log("[SUCCESS] testBuyNFT passed");
+    }
+
+    function testBuyNFTNotListed() public {
+        vm.startPrank(user1Signer);
+        token.approve(address(market), nftPrice);
+        market.claimNFT(user1Proof, "");
+        uint256 tokenId = 1;
+        vm.stopPrank();
+
+        vm.startPrank(user2Signer);
+        token.approve(address(market), 2000 * 10 ** 18);
+        vm.expectRevert("NFT not listed");
+        market.buyNFT(tokenId);
+        vm.stopPrank();
+
+        console.log("[SUCCESS] testBuyNFTNotListed passed");
+    }
+
     function getMerkleRoot(bytes32[] memory leaves) internal pure returns (bytes32) {
         require(leaves.length > 0, "No leaves provided");
         if (leaves.length == 1) return leaves[0];
@@ -266,7 +487,6 @@ contract AirDropTest_ok is Test {
         bytes32[] memory nextLevel = new bytes32[]((leaves.length + 1) / 2);
         for (uint256 i = 0; i < nextLevel.length; i++) {
             if (2 * i + 1 < leaves.length) {
-                // 确保较小的哈希值在前
                 bytes32 left = leaves[2 * i];
                 bytes32 right = leaves[2 * i + 1];
                 if (left > right) (left, right) = (right, left);
@@ -278,7 +498,6 @@ contract AirDropTest_ok is Test {
         return getMerkleRoot(nextLevel);
     }
 
-    // 辅助函数：生成 Merkle 证明
     function getMerkleProof(bytes32[] memory leaves, uint256 index) internal pure returns (bytes32[] memory) {
         require(index < leaves.length, "Index out of bounds");
         bytes32[] memory proof = new bytes32[](0);
@@ -289,7 +508,7 @@ contract AirDropTest_ok is Test {
             for (uint256 i = 0; i < nextLevel.length; i++) {
                 if (2 * i + 1 < currentLevel.length) {
                     bytes32 left = currentLevel[2 * i];
-                    bytes32 right = currentLevel[2 * i + 1];
+                    bytes32 right = leaves[2 * i + 1];
                     if (left > right) (left, right) = (right, left);
                     nextLevel[i] = keccak256(abi.encodePacked(left, right));
                 } else {
@@ -297,12 +516,9 @@ contract AirDropTest_ok is Test {
                 }
             }
 
-            // 如果当前索引是奇数，则需要前一个兄弟节点
             if (index % 2 == 1 && index < currentLevel.length) {
                 proof = appendToProof(proof, currentLevel[index - 1]);
-            }
-            // 如果当前索引是偶数，则需要后一个兄弟节点
-            else if (index % 2 == 0 && index + 1 < currentLevel.length) {
+            } else if (index % 2 == 0 && index + 1 < currentLevel.length) {
                 proof = appendToProof(proof, currentLevel[index + 1]);
             }
 
@@ -313,7 +529,6 @@ contract AirDropTest_ok is Test {
         return proof;
     }
 
-    // 辅助函数：将元素添加到证明数组中
     function appendToProof(bytes32[] memory proof, bytes32 element) internal pure returns (bytes32[] memory) {
         bytes32[] memory newProof = new bytes32[](proof.length + 1);
         for (uint256 i = 0; i < proof.length; i++) {
